@@ -2,7 +2,7 @@
 
 #### author:YJxyzxyz
 
-<img src="https://github.com/YJxyzxyz/Empathy-avator/blob/master/logo.png" width="350px">
+<img src="https://github.com/YJxyzxyz/road-vision-system/blob/master/logo.png" width="350px">
 
 ------
 
