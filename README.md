@@ -2,6 +2,8 @@
 
 #### author:YJxyzxyz
 
+<img src="https://github.com/YJxyzxyz/Empathy-avator/blob/master/logo.png" width="350px">
+
 ------
 
 # 总体模块路线图
