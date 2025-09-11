@@ -41,3 +41,30 @@ roadvision/
       fps_meter.py
   main_preview.py
 ```
+
+------
+
+# Module 2.1（图像预处理插件框架）
+
+## ✅ 目标
+
+- 传统方法实现
+- 在配置里开/关与调整参数，默认零侵入（不开也不影响主流程）
+- 后面换成更强的去雾/去雨 CNN 也只需替换同名插件即可。
+
+## 📁 目录&文件（最小骨架）
+
+修改调参说明
+
+**默认开链**（`preprocess.enabled: true`），画面对比度应更清晰（CLAHE），细雨噪点略弱（Median）。
+
+关链：把 `enabled: false` 对比性能与视觉差异。
+
+改 `CLAHEDehaze.params`：
+
+- `space: "LAB"` 往往偏“自然”，`"YCrCb"`偏“锐”；
+- `clip_limit` 
+- `tile_grid` 越大块对比度自适应越细腻，但开销略增。
+
+改 `MedianDerain.params.ksize` 为 5 看“去纹理”的力度（过大会糊）。
+
