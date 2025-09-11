@@ -1,0 +1,8 @@
+camera:
+  source: 0         # 0 表示默认摄像头；也可改成 "test.mp4" 或 RTSP URL
+  width: 1280
+  height: 720
+  fps_request: 30   # 仅“请求”，实际要以时间戳统计为准
+  backend: "auto"   # "auto" | "opencv" | "gstreamer"（Nano再用）
+preview:
+  show_fps: true
