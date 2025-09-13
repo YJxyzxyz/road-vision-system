@@ -32,3 +32,20 @@ preprocess:
   auto_gate:
     enable_low_contrast_gate: false
     contrast_thresh: 20.0
+
+detect:
+  enabled: true
+  backend: "ultralytics"         # 预留扩展：tensorrt/onnx 之后加
+  model: "yolov8n.pt"            # 也可用 yolov5n.pt / yolov8s.pt 等
+  device: "auto"                 # "auto" | "cpu" | "cuda:0"
+  conf_thres: 0.25
+  iou_thres: 0.7
+  max_det: 100
+  # COCO 类别筛选：2=car,3=motorcycle,5=bus,7=truck（也可加 1=bicycle, 0=person）
+  classes_keep: [0, 2, 3, 5, 7]
+
+vis:
+  draw:
+    det: true
+    thickness: 2
+    font_scale: 0.6

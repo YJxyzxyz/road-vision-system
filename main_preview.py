@@ -4,6 +4,8 @@ from src.config import load_config
 from src.io_video.capture import VideoSource
 from src.io_video.fps_meter import FPSMeter
 from src.preprocess import PreprocessPipeline
+from src.detect import build_detector
+from src.vis import draw_detections
 
 def make_canvas(raw_bgr, proc_bgr, layout="h", divider_px=4,
                 label_raw="RAW", label_proc="PROC", fps=None, show_fps=True):
@@ -37,6 +39,9 @@ def main():
     compare_cfg = preview_cfg.get("compare", {}) or {}
     record_cfg = preview_cfg.get("record", {}) or {}
     pp_cfg = cfg.get("preprocess", {}) or {}
+    det_cfg = cfg.get("detect", {}) or {}
+    vis_cfg = cfg.get("vis", {}) or {}
+    draw_cfg = vis_cfg.get("draw", {}) or {}
 
     vs = VideoSource(
         source=cam_cfg.get("source", 0),
@@ -48,50 +53,16 @@ def main():
     fpsm = FPSMeter(alpha=0.1)
     pipeline = PreprocessPipeline(pp_cfg)
 
+    detector = None
+    if det_cfg.get("enabled", False):
+        detector = build_detector(det_cfg)
+
     # 录像器
     writer = None
     want_record = bool(record_cfg.get("enable", False))
     want_compare = bool(compare_cfg.get("enable", True))
     layout = compare_cfg.get("layout", "h")
     divider_px = int(compare_cfg.get("divider_px", 4))
-
-    if want_record:
-        fr = vs.read()
-        if not fr.ok:
-            print("⚠️ 无法读取首帧用于初始化 VideoWriter")
-            return
-        raw = fr.image
-        proc = pipeline(raw, ts=fr.ts)
-        canvas = make_canvas(
-            raw, proc,
-            layout=layout,
-            divider_px=divider_px,
-            label_raw=compare_cfg.get("label_raw", "RAW"),
-            label_proc=compare_cfg.get("label_proc", "PROC"),
-            fps=None,
-            show_fps=False
-        )
-        h_out, w_out = canvas.shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(
-            record_cfg.get("path", "out_compare.mp4"),
-            fourcc,
-            float(record_cfg.get("fps", 30)),
-            (w_out, h_out)
-        )
-        # 写首帧
-        fps = fpsm.tick(fr.ts)
-        canvas = make_canvas(
-            raw, proc,
-            layout=layout,
-            divider_px=divider_px,
-            label_raw=compare_cfg.get("label_raw", "RAW"),
-            label_proc=compare_cfg.get("label_proc", "PROC"),
-            fps=fps,
-            show_fps=bool(preview_cfg.get("show_fps", True)),
-        )
-        writer.write(canvas)
-        cv2.imshow("Compare Preview", canvas)
 
     # 主循环
     while True:
@@ -101,6 +72,18 @@ def main():
             break
         raw = fr.image
         proc = pipeline(raw, ts=fr.ts)
+
+        # 检测（在处理后帧上）
+        dets = []
+        if detector is not None:
+            dets = detector.infer(proc)
+
+        # 叠加绘制
+        if draw_cfg.get("det", True) and dets:
+            draw_detections(proc, dets,
+                            thickness=int(draw_cfg.get("thickness", 2)),
+                            font_scale=float(draw_cfg.get("font_scale", 0.6)))
+
         fps = fpsm.tick(fr.ts)
 
         if want_compare:
@@ -116,7 +99,6 @@ def main():
             if writer: writer.write(canvas)
             cv2.imshow("Compare Preview", canvas)
         else:
-            # 只显示处理后
             frame_disp = proc.copy()
             if preview_cfg.get("show_fps", True):
                 cv2.putText(frame_disp, f"FPS:{fps:.1f}", (10,30),
@@ -129,6 +111,7 @@ def main():
             break
 
     if writer: writer.release()
+    if detector: detector.close()
     vs.release()
     cv2.destroyAllWindows()
 
