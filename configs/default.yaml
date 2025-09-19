@@ -44,6 +44,23 @@ detect:
   # COCO 类别筛选：2=car,3=motorcycle,5=bus,7=truck（也可加 1=bicycle, 0=person）
   classes_keep: [0, 2, 3, 5, 7]
 
+tracking:
+  enabled: true
+  backend: "sort"
+  max_staleness: 1.2      # 轨迹超时（秒）
+  min_hits: 3             # 连续命中次数达到后才稳定
+  iou_threshold: 0.35
+  speed_window: 0.8       # 速度估计时间窗（秒）
+
+geometry:
+  enabled: false
+  projector:
+    type: "homography"
+    image_points: []      # 示例: [[x1,y1], [x2,y2], ...]
+    world_points: []      # 示例: [[X1,Y1], ...] 单位米
+    origin: [0.0, 0.0]
+    max_distance: 1000.0  # 米，避免异常值
+
 vis:
   draw:
     det: true
