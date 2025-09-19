@@ -33,6 +33,41 @@ _DEFAULTS = {
             "contrast_thresh": 20.0,
         },
     },
+    "detect": {
+        "enabled": False,
+        "backend": "ultralytics",
+        "model": "yolov8n.pt",
+        "device": "auto",
+        "conf_thres": 0.25,
+        "iou_thres": 0.7,
+        "max_det": 100,
+        "classes_keep": [],
+    },
+    "tracking": {
+        "enabled": False,
+        "backend": "sort",
+        "max_staleness": 1.0,
+        "min_hits": 3,
+        "iou_threshold": 0.3,
+        "speed_window": 0.75,
+    },
+    "geometry": {
+        "enabled": False,
+        "projector": {
+            "type": "homography",
+            "image_points": [],
+            "world_points": [],
+            "origin": [0.0, 0.0],
+            "max_distance": 1_000_000.0,
+        },
+    },
+    "vis": {
+        "draw": {
+            "det": True,
+            "thickness": 2,
+            "font_scale": 0.6,
+        },
+    },
 }
 
 def _merge(a: dict, b: dict):

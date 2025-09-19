@@ -5,6 +5,8 @@ from src.io_video.capture import VideoSource
 from src.io_video.fps_meter import FPSMeter
 from src.preprocess import PreprocessPipeline
 from src.detect import build_detector
+from src.track import build_tracker
+from src.geometry import build_projector
 from src.vis import draw_detections
 
 def make_canvas(raw_bgr, proc_bgr, layout="h", divider_px=4,
@@ -40,6 +42,8 @@ def main():
     record_cfg = preview_cfg.get("record", {}) or {}
     pp_cfg = cfg.get("preprocess", {}) or {}
     det_cfg = cfg.get("detect", {}) or {}
+    track_cfg = cfg.get("tracking", {}) or {}
+    geom_cfg = cfg.get("geometry", {}) or {}
     vis_cfg = cfg.get("vis", {}) or {}
     draw_cfg = vis_cfg.get("draw", {}) or {}
 
@@ -56,6 +60,22 @@ def main():
     detector = None
     if det_cfg.get("enabled", False):
         detector = build_detector(det_cfg)
+
+    tracker = None
+    if track_cfg.get("enabled", False):
+        try:
+            tracker = build_tracker(track_cfg)
+        except Exception as exc:
+            print(f"⚠️ 跟踪器初始化失败: {exc}")
+            tracker = None
+
+    projector = None
+    if geom_cfg.get("enabled", False):
+        try:
+            projector = build_projector(geom_cfg)
+        except Exception as exc:
+            print(f"⚠️ 几何投影初始化失败: {exc}")
+            projector = None
 
     # 录像器
     writer = None
@@ -78,9 +98,20 @@ def main():
         if detector is not None:
             dets = detector.infer(proc)
 
+        tracked_dets = dets
+        if tracker is not None:
+            tracked_dets = tracker.update(dets, fr.ts, projector=projector)
+        else:
+            if projector is not None:
+                for d in dets:
+                    dist = projector.distance_for_bbox((d.x1, d.y1, d.x2, d.y2))
+                    if dist is not None:
+                        d.distance_m = dist
+        display_dets = tracked_dets
+
         # 叠加绘制
-        if draw_cfg.get("det", True) and dets:
-            draw_detections(proc, dets,
+        if draw_cfg.get("det", True) and display_dets:
+            draw_detections(proc, display_dets,
                             thickness=int(draw_cfg.get("thickness", 2)),
                             font_scale=float(draw_cfg.get("font_scale", 0.6)))
 
@@ -111,6 +142,7 @@ def main():
             break
 
     if writer: writer.release()
+    if tracker: tracker.close()
     if detector: detector.close()
     vs.release()
     cv2.destroyAllWindows()
