@@ -66,3 +66,18 @@ vis:
     det: true
     thickness: 2
     font_scale: 0.6
+
+runtime:
+  async:
+    enabled: false
+    capture:
+      queue_size: 4
+      drop_oldest: true
+    infer:
+      workers: 1
+      profile_interval: 60
+    output:
+      queue_size: 2
+    hot_reload:
+      enabled: false
+      watch_interval: 2.0
