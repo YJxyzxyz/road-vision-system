@@ -68,6 +68,26 @@ _DEFAULTS = {
             "font_scale": 0.6,
         },
     },
+    "runtime": {
+        "async": {
+            "enabled": False,
+            "capture": {
+                "queue_size": 4,
+                "drop_oldest": True,
+            },
+            "infer": {
+                "workers": 1,
+                "profile_interval": 60,
+            },
+            "output": {
+                "queue_size": 2,
+            },
+            "hot_reload": {
+                "enabled": False,
+                "watch_interval": 2.0,
+            },
+        },
+    },
 }
 
 def _merge(a: dict, b: dict):
@@ -88,9 +108,20 @@ def _project_root():
             return p
     return Path.cwd()
 
-def load_config(path: str | None = None) -> dict:
+def resolve_config_path(path: str | None = None) -> Path:
+    """Resolve configuration file path relative to project root."""
     root = _project_root()
-    cfg_path = Path(path) if path else (root / "configs" / "default.yaml")
+    if path:
+        cfg_path = Path(path)
+        if not cfg_path.is_absolute():
+            cfg_path = root / cfg_path
+    else:
+        cfg_path = root / "configs" / "default.yaml"
+    return cfg_path
+
+
+def load_config(path: str | None = None) -> dict:
+    cfg_path = resolve_config_path(path)
     if not cfg_path.exists():
         raise FileNotFoundError(f"配置文件未找到：{cfg_path}")
 

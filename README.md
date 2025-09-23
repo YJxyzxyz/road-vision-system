@@ -161,6 +161,140 @@ vis:
 
 ------
 
+# Module 8（性能与异步流水线）
+
+## ✅ 目标
+
+- **输入/推理/显示分离**：通过生产者-消费者队列把取帧、推理和渲染拆分到独立线程，降低相互阻塞的概率。
+- **智能跳帧与限流**：在检测/跟踪跟不上时丢弃过期帧或降低处理频率，确保 UI 与录像依旧流畅。
+- **热切换配置**：在不中断主循环的情况下更新阈值、模型或可视化参数，实现运行期的“软重启”。
+- **性能监控**：采集各阶段耗时与队列长度，输出到日志/屏幕，便于快速定位瓶颈。
+
+## 🧱 推荐架构
+
+1. **CaptureThread**
+   - 独立线程调用 `VideoSource.read()`，将 `(Frame, ts)` 放入 `queue.Queue(maxsize=N)`。
+   - 如果队列已满且允许跳帧，优先丢弃最旧帧（`queue.get_nowait()` + `task_done()`）。
+   - 提供 `stop_event`，在退出时优雅释放相机。
+
+2. **InferWorker**
+   - 另一个线程从输入队列取帧，完成预处理 + 检测 + 跟踪。
+   - 结果 `Detection` 列表放入输出队列，必要时在此阶段完成几何投影。
+   - 记录单帧耗时（preprocess/detect/track）并写入 `FPSMeter` 或自定义 profiler。
+
+3. **Main/UI Thread**
+   - 负责从输出队列取数据，调用 `draw_detections` 叠加结果并刷新窗口/录像。
+   - 若开启录像，在此线程统一写入，避免多线程争抢编码器。
+
+4. **配置热更新**
+   - 监控 `configs/default.yaml` 的 `mtime` 或提供 REST/WebSocket 入口。
+   - 一旦检测到变化，通过线程安全的 `ConfigStore` 更新阈值、告警规则。
+
+## ⚙️ 配置建议
+
+在 `configs/default.yaml` 新增 `runtime.async` 区块，示例：
+
+```yaml
+runtime:
+  async:
+    enabled: true
+    capture:
+      queue_size: 4
+      drop_oldest: true
+    infer:
+      workers: 1          # Jetson 上通常维持 1，x86 可视情况增加
+      profile_interval: 60  # 每 60 帧输出一次性能统计
+    output:
+      queue_size: 2
+    hot_reload:
+      enabled: true
+      watch_interval: 2.0   # 秒
+```
+
+结合 `FPSMeter` 输出，可在日志中形成如下数据：
+
+```
+[Perf] capture=4.2ms preprocess=6.8ms detect=21.5ms track=3.1ms queue_in=1/4 queue_out=0/2
+```
+
+## 🧪 验证清单
+
+- 压力测试：从 1080p @ 30 FPS 视频流读取，确认在 CPU/GPU 不同组合下不会积压超过 `queue_size`。
+- 跳帧策略：刻意让检测线程睡眠，观察主窗口 FPS 是否仍稳定在可接受范围。
+- 热更新：修改 `detect.conf_thres` 或 `vis.draw.det`，确保无需重启即可生效。
+
+------
+
+# Module 9（Jetson Nano 部署与 TensorRT）
+
+## ✅ 目标
+
+- 在 **Jetson Nano/Orin** 等 JetPack 平台上完成端到端部署，接入 CSI 或 USB 摄像头。
+- 使用 **TensorRT** 替换默认的 PyTorch/ONNX 推理后端，满足实时性能。
+- 将视频采集切换到 **GStreamer**，充分利用硬件 ISP 与 NVMM 零拷贝。
+- 提供一套部署脚本（安装依赖、模型转换、性能调优）与故障排查指引。
+
+## 🚀 部署步骤
+
+1. **环境准备**
+   - 依赖 JetPack ≥ 4.6，执行 `sudo apt update && sudo apt install python3-venv libopencv-dev gstreamer1.0-tools`。
+   - 开启性能模式：`sudo nvpmodel -m 0 && sudo jetson_clocks`。
+
+2. **模型转换**
+   - 利用 Ultralytics 导出 ONNX：`yolo export model=yolov8n.pt format=onnx dynamic=True`。
+   - 使用 `trtexec` 生成 engine：
+     ```bash
+     /usr/src/tensorrt/bin/trtexec \
+       --onnx=yolov8n.onnx \
+       --saveEngine=yolov8n.engine \
+       --workspace=2048 --fp16
+     ```
+   - 在 `configs/default.yaml` 中设置：
+     ```yaml
+     detect:
+       backend: "tensorrt"
+       engine: "models/yolov8n.engine"
+       device: "cuda:0"
+     ```
+
+3. **相机接入（GStreamer）**
+   - CSI 摄像头：
+     ```yaml
+     camera:
+       backend: "gstreamer"
+       source: "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink"
+     ```
+   - USB 摄像头：可使用 `v4l2src device=/dev/video0 ! ... ! appsink` 管线，必要时加 `videoscale`、`videorate` 限制分辨率与帧率。
+
+4. **运行与调优**
+   - 首次启动加 `--warmup` 预热引擎，避免初次推理的缓存开销。
+   - 在 Module 8 的异步模式下测试 `queue_size=2`、`drop_oldest=true`，防止 Nano 内存压力。
+   - 如需进一步提速，可在配置中开启 INT8 引擎（需校准数据集）。
+
+## 🧰 故障排查
+
+- **GStreamer 打不开**：检查插件是否安装（`gst-inspect-1.0 nvarguscamerasrc`），确认摄像头权限。
+- **TensorRT engine 不兼容**：确保在同一 JetPack 版本下生成；修改 `max_workspace_size` 以适配内存。
+- **内存不足/显存溢出**：减小 `preprocess` 链条或启用 Module 8 的跳帧策略。
+- **性能未达标**：
+  - 确认 `nvpmodel`/`jetson_clocks` 已启用。
+  - 降低模型尺寸（`yolov8n` → `yolov8n-int8`）。
+  - 通过 `tegrastats` 观察 CPU/GPU 占用，按需调整线程数与分辨率。
+
+## 📦 建议的部署结构
+
+```
+roadvision/
+  models/
+    yolov8n.engine
+  scripts/
+    install_jetson.sh      # 安装依赖
+    export_trt.sh          # 模型转换
+    run_jetson.sh          # 带 GStreamer/async 的启动脚本
+```
+
+------
+
 # 运行示例
 
 ```bash
@@ -184,6 +318,6 @@ python main_preview.py
 
 # TODO / 下一步计划
 
-- Module 8：引入多线程采集与推理、异步队列，提高实时性。
-- Module 9：补充 Jetson / TensorRT 推理路径与硬件接口。
+- Module 10：边缘侧事件缓存 + 云端同步（违规截图、结构化数据回传接口）。
+- Module 11：违规行为识别（压线、逆行等）与规则引擎可视化配置。
 
